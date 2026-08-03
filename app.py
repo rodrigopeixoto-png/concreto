@@ -9,16 +9,15 @@ import streamlit as st
 st.set_page_config(page_title="Cálculo de Vigas NBR 6118", page_icon="🏗️", layout="wide")
 
 st.title("🏗️ Cálculo Rápido de Vigas (NBR 6118)")
-st.markdown("Aplicativo para pré-dimensionamento de armaduras longitudinais e transversais de vigas retangulares.")
+st.markdown("Aplicativo para pré-dimensionamento de armaduras longitudinais e transversais de vigas retangulares, agora com vista longitudinal.")
 
-def dimensionar_viga(bw, h, L, q_extra, fck):
+def dimensionar_viga(bw, h, L, q_extra, fck, cobrimento):
     # Parâmetros Iniciais
     fyk = 500.0   
     fywk = 500.0  
     gamma_c = 1.4
     gamma_s = 1.15
     gamma_f = 1.4
-    cobrimento = 3.0 
     
     fcd = (fck / gamma_c) / 10.0      
     fyd = (fyk / gamma_s) / 10.0      
@@ -99,44 +98,74 @@ def dimensionar_viga(bw, h, L, q_extra, fck):
     if not escolha_transv:
         escolha_transv = (5.0, 10)
 
-    # ==================== DESENHO (MATPLOTLIB) ====================
-    fig, ax = plt.subplots(figsize=(5, 6))
-    concreto = patches.Rectangle((0, 0), bw, h, linewidth=2, edgecolor='#333333', facecolor='#e6e6e6')
-    ax.add_patch(concreto)
-
+    # ==================== COORDENADAS DAS BARRAS ====================
     phi_e_cm = escolha_transv[0] / 10.0
-    estribo = patches.Rectangle(
-        (cobrimento, cobrimento), bw - 2 * cobrimento, h - 2 * cobrimento, 
-        linewidth=2, edgecolor='red', facecolor='none', linestyle='--'
-    )
-    ax.add_patch(estribo)
-
     n_long, phi_l_mm, _ = escolha_long
     r_l = (phi_l_mm / 10.0) / 2.0
+    r_top = 0.8 / 2.0
+    
     y_inf = cobrimento + phi_e_cm + r_l
+    y_sup = h - (cobrimento + phi_e_cm + r_top)
     x_min = cobrimento + phi_e_cm + r_l
     x_max = bw - (cobrimento + phi_e_cm + r_l)
+
+    # ==================== DESENHO 1: SEÇÃO TRANSVERSAL ====================
+    fig_transv, ax1 = plt.subplots(figsize=(5, 6))
+    ax1.add_patch(patches.Rectangle((0, 0), bw, h, linewidth=2, edgecolor='#333333', facecolor='#e6e6e6'))
+
+    ax1.add_patch(patches.Rectangle(
+        (cobrimento, cobrimento), bw - 2 * cobrimento, h - 2 * cobrimento, 
+        linewidth=2, edgecolor='red', facecolor='none', linestyle='--'
+    ))
+
     x_coords = [x_min + i * ((x_max - x_min) / (n_long - 1)) for i in range(n_long)] if n_long > 1 else [(x_min + x_max) / 2]
 
     for x in x_coords:
-        barra = patches.Circle((x, y_inf), r_l, color='blue')
-        ax.add_patch(barra)
+        ax1.add_patch(patches.Circle((x, y_inf), r_l, color='blue'))
 
-    r_top = 0.8 / 2.0
-    y_sup = h - (cobrimento + phi_e_cm + r_top)
-    ax.add_patch(patches.Circle((x_min, y_sup), r_top, color='black'))
-    ax.add_patch(patches.Circle((x_max, y_sup), r_top, color='black'))
+    ax1.add_patch(patches.Circle((x_min, y_sup), r_top, color='black'))
+    ax1.add_patch(patches.Circle((x_max, y_sup), r_top, color='black'))
 
-    ax.set_aspect('equal')
-    margin = 4
-    ax.set_xlim(-margin, bw + margin)
-    ax.set_ylim(-margin, h + margin)
-    ax.set_title(f"Seção Detalhada ({bw}x{h} cm)", fontsize=10, fontweight='bold')
-    ax.set_xlabel("Largura (cm)")
-    ax.set_ylabel("Altura (cm)")
-    ax.grid(True, linestyle=':', alpha=0.5)
+    ax1.set_aspect('equal')
+    ax1.set_xlim(-4, bw + 4)
+    ax1.set_ylim(-4, h + 4)
+    ax1.set_title(f"Seção Transversal ({bw}x{h} cm)", fontsize=10, fontweight='bold')
+    ax1.set_xlabel("Largura (cm)")
+    ax1.set_ylabel("Altura (cm)")
+    ax1.grid(True, linestyle=':', alpha=0.5)
 
-    return g_proprio, q_total, Mk, Vd, As_adotada, escolha_long, Asw_s_final, escolha_transv, fig
+    # ==================== DESENHO 2: VISTA LONGITUDINAL ====================
+    fig_long, ax2 = plt.subplots(figsize=(10, 3.5))
+    L_cm = L * 100.0 # Converte vão para cm para o desenho
+
+    # Concreto
+    ax2.add_patch(patches.Rectangle((0, 0), L_cm, h, linewidth=2, edgecolor='#333333', facecolor='#e6e6e6'))
+
+    # Apoios (Triângulos nas extremidades)
+    t_size = h * 0.2
+    ax2.plot([0, -t_size, t_size, 0], [0, -t_size, -t_size, 0], color='black', lw=2)
+    ax2.plot([L_cm, L_cm - t_size, L_cm + t_size, L_cm], [0, -t_size, -t_size, 0], color='black', lw=2)
+
+    # Estribos (distribuídos ao longo do vão)
+    passo = escolha_transv[1]
+    x_est = cobrimento
+    while x_est <= L_cm - cobrimento:
+        ax2.plot([x_est, x_est], [cobrimento, h - cobrimento], color='red', lw=1.5, alpha=0.7)
+        x_est += passo
+
+    # Armaduras Longitudinais
+    ax2.plot([cobrimento, L_cm - cobrimento], [y_inf, y_inf], color='blue', lw=3, label=f'Armadura Tracionada ({n_long}ø{phi_l_mm})')
+    ax2.plot([cobrimento, L_cm - cobrimento], [y_sup, y_sup], color='black', lw=2, label='Porta-estribo')
+
+    # Ajustes da vista longitudinal (sem 'equal' para não esmagar vigas muito longas)
+    ax2.set_xlim(-L_cm*0.05, L_cm*1.05)
+    ax2.set_ylim(-t_size*1.5, h*1.2)
+    ax2.set_title(f"Vista Longitudinal - Vão livre: {L} m", fontsize=10, fontweight='bold')
+    ax2.set_xlabel("Comprimento (cm)")
+    ax2.set_ylabel("Altura (cm)")
+    ax2.legend(loc='upper right', fontsize=8)
+
+    return g_proprio, q_total, Mk, Vd, As_adotada, escolha_long, Asw_s_final, escolha_transv, fig_transv, fig_long
 
 
 # ==========================================
@@ -147,13 +176,14 @@ with st.sidebar:
     bw = st.number_input("Largura da viga (cm)", min_value=12, max_value=100, value=20, step=1)
     h = st.number_input("Altura da viga (cm)", min_value=20, max_value=200, value=50, step=5)
     L = st.number_input("Vão livre (m)", min_value=1.0, max_value=20.0, value=5.0, step=0.5)
+    cobrimento = st.number_input("Cobrimento (cm)", min_value=2.0, max_value=5.0, value=3.0, step=0.5, help="NBR 6118: Depende da Classe de Agressividade Ambiental (CAA)")
     q_extra = st.number_input("Carga adicional (kN/m)", min_value=0.0, max_value=100.0, value=15.0, step=1.0)
     fck = st.number_input("fck do concreto (MPa)", min_value=20, max_value=90, value=25, step=5)
     
     calcular = st.button("Calcular Viga", type="primary", use_container_width=True)
 
 if calcular:
-    g_proprio, q_total, Mk, Vd, As_adotada, e_long, Asw_final, e_transv, fig = dimensionar_viga(bw, h, L, q_extra, fck)
+    g_proprio, q_total, Mk, Vd, As_adotada, e_long, Asw_final, e_transv, fig_transv, fig_long = dimensionar_viga(bw, h, L, q_extra, fck, cobrimento)
     
     # Exibição dos Resultados em Colunas
     col1, col2 = st.columns([1.2, 1])
@@ -175,6 +205,13 @@ if calcular:
                 f"**Adotado:** Estribos de ø{e_transv[0]} mm a cada {e_transv[1]} cm")
                 
     with col2:
-        st.pyplot(fig)
+        st.subheader("🖼️ Desenhos")
+        # Abas para separar a seção transversal da longitudinal
+        tab1, tab2 = st.tabs(["Seção Transversal", "Vista Longitudinal"])
+        
+        with tab1:
+            st.pyplot(fig_transv)
+        with tab2:
+            st.pyplot(fig_long)
 else:
     st.info("Insira os parâmetros na barra lateral e clique em **Calcular Viga** para gerar o dimensionamento.")
